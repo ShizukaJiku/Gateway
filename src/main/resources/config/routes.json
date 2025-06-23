@@ -1,0 +1,29 @@
+[
+  {
+    "id": "micro1",
+    "name": "Servicio de Prueba",
+    "currentEnv": "LOCAL",
+    
+    "envConfigMap": {
+      "LOCAL": {
+        "uri": "http://localhost:8081",
+        "headers": {
+          "Apim-Key": "local-key"
+        }
+      },
+      "DEV": {
+        "uri": "https://dev.micro1.com",
+        "headers": {
+          "Apim-Key": "dev-key",
+          "X-Env": "DEV"
+        }
+      }
+    },
+    "pathPattern": "/micro1/**",
+    "rewriteRegex": "/micro1/(?<segment>.*)",
+    "rewriteReplacement": "/${segment}",
+    "filters": [
+      "StripPrefix=1"
+    ]
+  }
+]
