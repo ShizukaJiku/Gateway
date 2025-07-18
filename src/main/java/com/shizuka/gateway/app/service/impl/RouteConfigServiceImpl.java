@@ -35,6 +35,7 @@ public class RouteConfigServiceImpl implements RouteConfigService {
   @PostConstruct
   public void init() {
     list().forEach(this::registerRoute);
+    refreshRoutes();
   }
 
   @Override
@@ -51,6 +52,7 @@ public class RouteConfigServiceImpl implements RouteConfigService {
   public void create(RouteConfig config) {
     routeConfigUseCase.create(config);
     registerRoute(config);
+    refreshRoutes();
     log.info("Route registered: {}", config.getId());
   }
 
@@ -59,6 +61,7 @@ public class RouteConfigServiceImpl implements RouteConfigService {
     config.setId(id);
     routeConfigUseCase.update(config);
     replaceRouteDefinition(config);
+    refreshRoutes();
     log.info("Route updated: {}", config.getId());
   }
 
@@ -86,6 +89,7 @@ public class RouteConfigServiceImpl implements RouteConfigService {
         registerRoute(config);
         log.info("Route created via upsert: {}", config.getId());
       }
+      refreshRoutes();
     });
   }
 
@@ -99,60 +103,53 @@ public class RouteConfigServiceImpl implements RouteConfigService {
   public void updateEnv(List<String> routeIds, EnvEnum newEnv) {
     routeConfigUseCase.updateEnv(routeIds, newEnv);
     getAffectedRoutes(routeIds).forEach(this::replaceRouteDefinition);
+    refreshRoutes();
   }
 
   @Override
   public Flux<Void> upsertFromFile(FilePart routes) {
     var objectMapper = new ObjectMapper();
 
-    return routes.content()
-        .flatMap(dataBuffer -> {
-          try {
-            // Convertir el DataBuffer a InputStream
-            var inputStream = dataBuffer.asInputStream();
+    return routes.content().flatMap(dataBuffer -> {
+      try {
+        // Convertir el DataBuffer a InputStream
+        var inputStream = dataBuffer.asInputStream();
 
-            // Leer las configuraciones de rutas desde el InputStream
-            List<RouteConfig> configs = objectMapper
-                .readerFor(new TypeReference<List<RouteConfig>>() {
-                })
-                .readValue(inputStream);
+        // Leer las configuraciones de rutas desde el InputStream
+        List<RouteConfig> configs = objectMapper.readerFor(new TypeReference<List<RouteConfig>>() {
+        }).readValue(inputStream);
 
-            if (configs == null || configs.isEmpty()) {
-              return Mono.error(new IllegalArgumentException("Uploaded routes contains no route configurations."));
-            }
+        if (configs == null || configs.isEmpty()) {
+          return Mono.error(new IllegalArgumentException("Uploaded routes contains no route configurations."));
+        }
 
-            // Llamar al método para insertar las configuraciones
-            upsertMany(configs);
-            return Mono.empty(); // Indica que la operación se completó sin errores
-          } catch (IOException e) {
-            return Mono.error(new IllegalArgumentException("Failed to read uploaded routes: " + e.getMessage(), e));
-          }
-        });
+        // Llamar al método para insertar las configuraciones
+        upsertMany(configs);
+        return Mono.empty(); // Indica que la operación se completó sin errores
+      } catch (IOException e) {
+        return Mono.error(new IllegalArgumentException("Failed to read uploaded routes: " + e.getMessage(), e));
+      }
+    });
   }
 
   private List<RouteConfig> getAffectedRoutes(List<String> routeIds) {
-    return list().stream()
-        .filter(cfg -> routeIds == null || routeIds.isEmpty() || routeIds.contains(cfg.getId()))
-        .toList();
+    return list().stream().filter(cfg -> routeIds == null || routeIds.isEmpty() || routeIds.contains(cfg.getId())).toList();
   }
 
   private void replaceRouteDefinition(RouteConfig routeConfig) {
-    routeDefinitionWriter.delete(Mono.just(routeConfig.getId()))
-        .onErrorResume(e -> Mono.empty())
-        .then(Mono.fromRunnable(() -> registerRoute(routeConfig)))
-        .subscribe();
+    routeDefinitionWriter.delete(Mono.just(routeConfig.getId())).onErrorResume(e -> Mono.empty()).then(Mono.fromRunnable(() -> registerRoute(routeConfig))).subscribe();
   }
 
   private void registerRoute(RouteConfig routeConfig) {
     RouteDefinition definition = routeDefinitionFactory.from(routeConfig);
     routeDefinitionWriter.save(Mono.just(definition)).subscribe();
+  }
+
+  private void refreshRoutes() {
     publisher.publishEvent(new RefreshRoutesEvent(this));
   }
 
   private void deleteRouteDefinition(String id) {
-    routeDefinitionWriter.delete(Mono.just(id))
-        .onErrorResume(e -> Mono.empty())
-        .doOnSuccess(unused -> log.info("Route deleted: {}", id))
-        .subscribe();
+    routeDefinitionWriter.delete(Mono.just(id)).onErrorResume(e -> Mono.empty()).doOnSuccess(unused -> log.info("Route deleted: {}", id)).subscribe();
   }
 }
